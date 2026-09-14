@@ -90,8 +90,8 @@ export function HeartbeatAudio({
     const panner = ctx.createPanner();
     panner.panningModel = "HRTF";
     panner.distanceModel = "inverse";
-    panner.refDistance = 1;
-    panner.rolloffFactor = 1.2;
+    panner.refDistance = 2; // was 1 — at the typical ~4-5 unit camera distance from the anchor, refDistance=1 attenuated the heartbeat too aggressively against the (non-positional, un-attenuated) ambient bed
+    panner.rolloffFactor = 0.8; // was 1.2 — same reasoning; a gentler falloff keeps the heartbeat audible without losing spatialization entirely
     panner.maxDistance = 20;
     panner.coneInnerAngle = 360; // omnidirectional — a heartbeat has no "facing"
     panner.positionX.value = anchorPosition[0];

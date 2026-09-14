@@ -20,7 +20,7 @@ const mapLinear = (value: number, inMin: number, inMax: number, outMin: number, 
 /** 0..1: how "maxed out" the ambient bed (wind + room tone) should be — full during Ch.7/8. */
 export function chapterAmbientBoost(chapterId: number): number {
   if (chapterId >= 7) return 1;
-  return mapLinear(chapterId, 1, 6, 0.45, 0.75);
+  return mapLinear(chapterId, 1, 6, 0.3, 0.6);
 }
 
 /** 0..1: police-footstep presence — silent before Ch.6, present from Ch.6 onward (through the climax). */

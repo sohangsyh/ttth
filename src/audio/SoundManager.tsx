@@ -203,7 +203,7 @@ export function SoundManager() {
 
     // Ambient bed: tension-driven AND an explicit Ch.7/8 max-out, whichever is higher.
     if (ambientGainRef.current) {
-      const target = Math.max(tension, chapterAmbientBoost(currentChapter)) * 0.5; // 0.5 = overall bed ceiling
+      const target = Math.max(tension, chapterAmbientBoost(currentChapter)) * 0.32; // 0.32 = overall bed ceiling — kept below the heartbeat's resting level (see heartbeatSynth.ts) so wind/room-tone reads as background, not foreground
       ambientGainRef.current.gain.setTargetAtTime(target, ctx.currentTime, AMBIENT_GAIN_TIME_CONSTANT);
     }
 

@@ -32,7 +32,7 @@ export function bpmToBeatInterval(bpm: number): number {
  * be numerically high".
  */
 export function heartRateToGain(bpm: number, chapterId: number): number {
-  const base = mapLinear(bpm, HEART_RATE_RANGE.min, HEART_RATE_RANGE.max, 0.12, 0.55);
+  const base = mapLinear(bpm, HEART_RATE_RANGE.min, HEART_RATE_RANGE.max, 0.3, 0.75);
   const chapterBoost = mapLinear(clamp(chapterId, 1, 8), 1, 8, 0.75, 1.6);
   return clamp(base * chapterBoost, 0, 1);
 }
