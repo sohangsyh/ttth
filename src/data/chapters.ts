@@ -6,12 +6,31 @@
  * Poe's story (1843) is in the public domain, so subtitle lines below quote
  * and adapt the original text directly for authenticity.
  *
+ * VISUAL REDESIGN NOTE: camera keyframes, `motionProfile`, and `lighting`
+ * were rewritten chapter-by-chapter to match a specific cinematic brief —
+ * deep chiaroscuro, a single moving lantern as primary light, and distinct
+ * per-chapter camera language (macro/drift, low-angle sweep, panic snap,
+ * dutch chaos, top-down stillness, clinical calm, locked stillness,
+ * frenetic collapse). Two things from that brief are deliberately NOT
+ * modeled here, flagged rather than silently skipped:
+ *  - "Violent zoom on the narrator's face" (Ch8): this app has always been
+ *    a first-person POV camera (there's no narrator character mesh to cut
+ *    to) — reinterpreted as a violent FOV push-in instead of a third-person
+ *    cut, to stay consistent with the established visual language.
+ *  - Literal rigid-body bed-dragging physics (Ch4) and floorboards
+ *    "shattering" as a distinct destruction animation (Ch8): approximated
+ *    via camera chaos (dutch-chaos/frenetic-collapse motion profiles) and
+ *    the existing plank-lift animation (see scene/models/Floorboards.tsx),
+ *    not new physics/destruction systems.
+ *
  * This file is pure data — no React/Three.js imports — so it can be reused
  * by the renderer, the subtitle track, the timeline scrubber, and any
  * server-side tooling (e.g. a chapter-export script) without pulling in
  * rendering dependencies.
  * ---------------------------------------------------------------------------
  */
+
+import type { MotionProfile } from "../scene/cameraMotionProfiles";
 
 /** Minimal Vector3-like shape. Compatible with `new THREE.Vector3(x, y, z)`. */
 export interface Vec3 {
@@ -31,10 +50,11 @@ export interface SubtitleCue {
 }
 
 /**
- * A named point in the cinematic camera path. The renderer should
- * interpolate (e.g. via a Catmull-Rom spline or simple lerp/slerp) between
- * consecutive keyframes using their `time` values across the chapter's
- * duration. In 'free' camera mode these are ignored entirely.
+ * A named point in the cinematic camera path. The renderer interpolates
+ * (linearly — see getCameraPoseAtTime) between consecutive keyframes using
+ * their `time` values across the chapter's duration. In 'free' camera mode
+ * these are ignored entirely. CameraRig.tsx layers the chapter's
+ * `motionProfile` procedural offset ON TOP of this interpolated base pose.
  */
 export interface CameraKeyframe {
   id: string;
@@ -46,8 +66,22 @@ export interface CameraKeyframe {
   lookAt: Vec3;
   /** Optional field of view override (degrees) for dramatic push-ins. */
   fov?: number;
+  /** Optional camera roll (radians) for true dutch-angle tilt — applied around the view axis after lookAt. */
+  roll?: number;
   /** Optional easing hint for the renderer's interpolation curve. */
   easing?: "linear" | "easeInOut" | "easeIn" | "easeOut";
+}
+
+/** Per-chapter lighting character for the handheld lantern (see scene/LanternLight.tsx). */
+export interface LightingProfile {
+  /** Beam half-angle in radians — narrow (~0.28) reads as a piercing cone, wide (~0.55) as a spread flood. */
+  beamAngle: number;
+  /** Color temperature: 'cold' (pale blue-white), 'warm' (amber, the default), or 'harsh' (bright, near-white). */
+  colorTemp: "cold" | "warm" | "harsh";
+  /** Multiplier on the lantern's baseline intensity. */
+  intensity: number;
+  /** 0..1 — how much extra guttering/strobe violence to layer onto the normal heartbeat-linked flicker. */
+  violence: number;
 }
 
 export interface Chapter {
@@ -64,6 +98,10 @@ export interface Chapter {
   peakHeartRate: number;
   /** Ambient/SFX audio track key, resolved by the audio manager. */
   audioTrack: string;
+  /** This chapter's procedural camera "character" — see scene/cameraMotionProfiles.ts. */
+  motionProfile: MotionProfile;
+  /** This chapter's lantern lighting character — see scene/LanternLight.tsx. */
+  lighting: LightingProfile;
   subtitles: SubtitleCue[];
   cameraKeyframes: CameraKeyframe[];
 }
@@ -82,6 +120,8 @@ export const CHAPTERS: Chapter[] = [
     baselineHeartRate: 60,
     peakHeartRate: 75,
     audioTrack: "amb_study_room_quiet",
+    motionProfile: "hover-drift",
+    lighting: { beamAngle: 0.28, colorTemp: "cold", intensity: 1.1, violence: 0 },
     subtitles: [
       { id: "1-1", start: 0, end: 5, text: "True! — nervous — very, very dreadfully nervous I had been and am;" },
       { id: "1-2", start: 5, end: 11, text: "but why will you say that I am mad?" },
@@ -93,10 +133,10 @@ export const CHAPTERS: Chapter[] = [
       { id: "1-8", start: 52, end: 60, text: "I think it was his eye! Yes, it was this! One of his eyes resembled that of a vulture — a pale blue eye, with a film over it." },
     ],
     cameraKeyframes: [
-      { id: "1-k1", time: 0, position: { x: 0, y: 1.6, z: 4 }, lookAt: { x: 0, y: 1.5, z: 0 }, fov: 45, easing: "easeInOut" },
-      { id: "1-k2", time: 20, position: { x: 1.2, y: 1.7, z: 2.2 }, lookAt: { x: 0, y: 1.5, z: -1 }, fov: 40, easing: "easeInOut" },
-      { id: "1-k3", time: 43, position: { x: -0.5, y: 1.4, z: 1.2 }, lookAt: { x: 0.3, y: 1.5, z: -0.5 }, fov: 35, easing: "easeIn" },
-      { id: "1-k4", time: 60, position: { x: 0, y: 1.5, z: 0.6 }, lookAt: { x: 0, y: 1.55, z: -0.2 }, fov: 28, easing: "easeIn" },
+      { id: "1-k1", time: 0, position: { x: -0.15, y: 0.95, z: -1.3 }, lookAt: { x: -0.02, y: 0.87, z: -2.2 }, fov: 32, easing: "easeInOut" },
+      { id: "1-k2", time: 20, position: { x: -0.08, y: 0.9, z: -1.55 }, lookAt: { x: -0.02, y: 0.87, z: -2.2 }, fov: 24, easing: "easeInOut" },
+      { id: "1-k3", time: 43, position: { x: -0.05, y: 0.88, z: -1.85 }, lookAt: { x: -0.02, y: 0.87, z: -2.2 }, fov: 19, easing: "easeIn" },
+      { id: "1-k4", time: 60, position: { x: -0.03, y: 0.87, z: -2.02 }, lookAt: { x: -0.02, y: 0.87, z: -2.2 }, fov: 16, easing: "easeIn" },
     ],
   },
   {
@@ -108,6 +148,8 @@ export const CHAPTERS: Chapter[] = [
     baselineHeartRate: 65,
     peakHeartRate: 85,
     audioTrack: "amb_house_at_night",
+    motionProfile: "clockwork-sweep",
+    lighting: { beamAngle: 0.42, colorTemp: "warm", intensity: 0.9, violence: 0.1 },
     subtitles: [
       { id: "2-1", start: 0, end: 8, text: "Now this is the point. You fancy me mad. Madmen know nothing." },
       { id: "2-2", start: 8, end: 16, text: "But you should have seen me. You should have seen how wisely I proceeded — with what caution." },
@@ -119,11 +161,11 @@ export const CHAPTERS: Chapter[] = [
       { id: "2-8", start: 62, end: 75, text: "But I found the eye always closed; and so it was impossible to do the work, for it was not the old man who vexed me, but his Evil Eye." },
     ],
     cameraKeyframes: [
-      { id: "2-k1", time: 0, position: { x: -2, y: 1.7, z: 3 }, lookAt: { x: 0, y: 1.5, z: 0 }, fov: 42, easing: "easeInOut" },
-      { id: "2-k2", time: 16, position: { x: -0.3, y: 1.6, z: 1.8 }, lookAt: { x: 0, y: 1.2, z: -1 }, fov: 38, easing: "easeInOut" },
-      { id: "2-k3", time: 34, position: { x: 0.1, y: 1.3, z: 0.9 }, lookAt: { x: 0, y: 1.0, z: -1.5 }, fov: 30, easing: "linear" },
-      { id: "2-k4", time: 62, position: { x: 0, y: 1.1, z: 0.4 }, lookAt: { x: 0, y: 0.9, z: -1.8 }, fov: 24, easing: "easeIn" },
-      { id: "2-k5", time: 75, position: { x: -0.4, y: 1.5, z: 2 }, lookAt: { x: 0, y: 1.3, z: 0 }, fov: 40, easing: "easeOut" },
+      { id: "2-k1", time: 0, position: { x: -2.2, y: 1.0, z: 3.2 }, lookAt: { x: -1, y: 1.0, z: 0 }, fov: 48, easing: "easeInOut" },
+      { id: "2-k2", time: 20, position: { x: -1.2, y: 0.95, z: 1.8 }, lookAt: { x: -0.5, y: 0.8, z: -1 }, fov: 44, easing: "easeInOut" },
+      { id: "2-k3", time: 42, position: { x: -0.3, y: 0.9, z: 0.6 }, lookAt: { x: 0, y: 0.7, z: -1.6 }, fov: 40, easing: "linear" },
+      { id: "2-k4", time: 62, position: { x: 0.2, y: 0.85, z: -0.3 }, lookAt: { x: 0, y: 0.6, z: -1.8 }, fov: 36, easing: "easeIn" },
+      { id: "2-k5", time: 75, position: { x: -0.2, y: 0.95, z: 0.5 }, lookAt: { x: 0, y: 0.8, z: -1.5 }, fov: 42, easing: "easeOut" },
     ],
   },
   {
@@ -135,6 +177,8 @@ export const CHAPTERS: Chapter[] = [
     baselineHeartRate: 68,
     peakHeartRate: 90,
     audioTrack: "amb_house_at_night_tense",
+    motionProfile: "panic-snap",
+    lighting: { beamAngle: 0.45, colorTemp: "warm", intensity: 1.0, violence: 0.55 },
     subtitles: [
       { id: "3-1", start: 0, end: 8, text: "Upon the eighth night I was more than usually cautious in opening the door." },
       { id: "3-2", start: 8, end: 16, text: "A watch's minute hand moves more quickly than did mine." },
@@ -146,10 +190,12 @@ export const CHAPTERS: Chapter[] = [
       { id: "3-8", start: 58, end: 65, text: "I knew that he could not see the opening of the door, and I kept pushing it on steadily, steadily." },
     ],
     cameraKeyframes: [
-      { id: "3-k1", time: 0, position: { x: -1.5, y: 1.6, z: 2.5 }, lookAt: { x: 0, y: 1.4, z: -0.5 }, fov: 40, easing: "easeInOut" },
-      { id: "3-k2", time: 24, position: { x: -0.5, y: 1.6, z: 1.6 }, lookAt: { x: 0, y: 1.4, z: -0.8 }, fov: 36, easing: "linear" },
-      { id: "3-k3", time: 41, position: { x: 0.2, y: 1.3, z: 1.0 }, lookAt: { x: 0.4, y: 1.1, z: -1.2 }, fov: 32, easing: "easeIn" },
-      { id: "3-k4", time: 58, position: { x: 0, y: 1.1, z: 0.5 }, lookAt: { x: 0, y: 0.9, z: -2 }, fov: 26, easing: "easeIn" },
+      { id: "3-k1", time: 0, position: { x: -1.0, y: 1.3, z: 1.8 }, lookAt: { x: 0, y: 1.0, z: -1.0 }, fov: 38, easing: "easeInOut" },
+      { id: "3-k2", time: 24, position: { x: -0.4, y: 1.2, z: 1.0 }, lookAt: { x: 0, y: 0.9, z: -1.4 }, fov: 34, easing: "linear" },
+      { id: "3-k3", time: 41, position: { x: 0, y: 0.9, z: 0.4 }, lookAt: { x: 0, y: 0.7, z: -1.7 }, fov: 30, easing: "easeIn" },
+      { id: "3-k4", time: 43, position: { x: 0.1, y: 0.6, z: 0.3 }, lookAt: { x: 0, y: 1.3, z: -1.65 }, fov: 24, roll: 0.02, easing: "easeOut" },
+      { id: "3-k5", time: 58, position: { x: -0.1, y: 0.8, z: 0.2 }, lookAt: { x: 0, y: 1.0, z: -1.7 }, fov: 26, easing: "linear" },
+      { id: "3-k6", time: 65, position: { x: 0, y: 0.85, z: 0.15 }, lookAt: { x: 0, y: 0.9, z: -1.75 }, fov: 24, easing: "linear" },
     ],
   },
   {
@@ -161,6 +207,8 @@ export const CHAPTERS: Chapter[] = [
     baselineHeartRate: 100,
     peakHeartRate: 130,
     audioTrack: "sfx_heartbeat_rising",
+    motionProfile: "dutch-chaos",
+    lighting: { beamAngle: 0.5, colorTemp: "warm", intensity: 1.2, violence: 0.9 },
     subtitles: [
       { id: "4-1", start: 0, end: 7, text: "And it was open — wide, wide open — and I grew furious as I gazed upon it." },
       { id: "4-2", start: 7, end: 14, text: "I saw it with perfect distinctness — all a dull blue, with a hideous veil over it that chilled the very marrow in my bones." },
@@ -173,11 +221,11 @@ export const CHAPTERS: Chapter[] = [
       { id: "4-9", start: 62, end: 70, text: "The old man's hour had come! With a loud yell, I threw open the lantern and leaped into the room." },
     ],
     cameraKeyframes: [
-      { id: "4-k1", time: 0, position: { x: 0, y: 1.1, z: 0.6 }, lookAt: { x: 0, y: 1.0, z: -1.5 }, fov: 30, easing: "linear" },
-      { id: "4-k2", time: 22, position: { x: 0.1, y: 1.0, z: 0.3 }, lookAt: { x: 0, y: 0.95, z: -1.2 }, fov: 22, easing: "linear" },
-      { id: "4-k3", time: 46, position: { x: -0.2, y: 1.0, z: 0.2 }, lookAt: { x: 0, y: 0.95, z: -1 }, fov: 18, easing: "linear" },
-      { id: "4-k4", time: 62, position: { x: 0, y: 1.0, z: 0.15 }, lookAt: { x: 0, y: 0.95, z: -0.8 }, fov: 14, easing: "easeIn" },
-      { id: "4-k5", time: 70, position: { x: 0, y: 1.5, z: 3 }, lookAt: { x: 0, y: 1, z: -1 }, fov: 55, easing: "easeOut" },
+      { id: "4-k1", time: 0, position: { x: 0.1, y: 0.85, z: 0.3 }, lookAt: { x: 0, y: 0.85, z: -1.6 }, fov: 26, roll: 0.05, easing: "linear" },
+      { id: "4-k2", time: 22, position: { x: 0.15, y: 0.8, z: 0.15 }, lookAt: { x: 0, y: 0.85, z: -1.3 }, fov: 20, roll: -0.08, easing: "linear" },
+      { id: "4-k3", time: 46, position: { x: -0.2, y: 0.75, z: 0.1 }, lookAt: { x: 0, y: 0.9, z: -1.1 }, fov: 16, roll: 0.12, easing: "linear" },
+      { id: "4-k4", time: 62, position: { x: 0.3, y: 0.6, z: -0.3 }, lookAt: { x: -0.2, y: 0.8, z: -1.5 }, fov: 32, roll: -0.24, easing: "easeIn" },
+      { id: "4-k5", time: 70, position: { x: 0, y: 1.4, z: 2.0 }, lookAt: { x: 0, y: 0.9, z: -1.3 }, fov: 45, roll: 0, easing: "easeOut" },
     ],
   },
   {
@@ -189,6 +237,8 @@ export const CHAPTERS: Chapter[] = [
     baselineHeartRate: 80,
     peakHeartRate: 95,
     audioTrack: "amb_floorboards_work",
+    motionProfile: "top-down-still",
+    lighting: { beamAngle: 0.4, colorTemp: "warm", intensity: 0.8, violence: 0.05 },
     subtitles: [
       { id: "5-1", start: 0, end: 8, text: "If still you think me mad, you will think so no longer when I describe the wise precautions I took for the concealment of the body." },
       { id: "5-2", start: 8, end: 16, text: "I then smiled gaily, to find the deed so far done." },
@@ -201,10 +251,11 @@ export const CHAPTERS: Chapter[] = [
       { id: "5-9", start: 70, end: 80, text: "for what had I now to fear? There entered three men, who introduced themselves, as officers of the police." },
     ],
     cameraKeyframes: [
-      { id: "5-k1", time: 0, position: { x: 1.5, y: 1.7, z: 2 }, lookAt: { x: 0, y: 0.4, z: -0.5 }, fov: 45, easing: "easeInOut" },
-      { id: "5-k2", time: 24, position: { x: -1, y: 1.2, z: 1 }, lookAt: { x: 0, y: 0.2, z: -0.3 }, fov: 38, easing: "linear" },
-      { id: "5-k3", time: 51, position: { x: 0, y: 1.8, z: 0.1 }, lookAt: { x: 0, y: 0, z: -0.1 }, fov: 50, easing: "easeInOut" },
+      { id: "5-k1", time: 0, position: { x: 0.3, y: 2.6, z: 0.2 }, lookAt: { x: 0, y: 0, z: -0.3 }, fov: 40, easing: "easeInOut" },
+      { id: "5-k2", time: 24, position: { x: 0, y: 2.9, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, fov: 36, easing: "linear" },
+      { id: "5-k3", time: 51, position: { x: -0.2, y: 2.7, z: -0.1 }, lookAt: { x: 0, y: 0, z: -0.2 }, fov: 38, easing: "easeInOut" },
       { id: "5-k4", time: 70, position: { x: -2, y: 1.6, z: 3.5 }, lookAt: { x: -3, y: 1.5, z: 4 }, fov: 42, easing: "easeInOut" },
+      { id: "5-k5", time: 80, position: { x: -2.2, y: 1.55, z: 3.7 }, lookAt: { x: -3, y: 1.5, z: 4.2 }, fov: 40, easing: "easeOut" },
     ],
   },
   {
@@ -216,6 +267,8 @@ export const CHAPTERS: Chapter[] = [
     baselineHeartRate: 85,
     peakHeartRate: 100,
     audioTrack: "amb_night_investigation",
+    motionProfile: "steady-clinical",
+    lighting: { beamAngle: 0.45, colorTemp: "harsh", intensity: 0.6, violence: 0 },
     subtitles: [
       { id: "6-1", start: 0, end: 8, text: "A shriek had been heard by a neighbor during the night; suspicion of foul play had been aroused." },
       { id: "6-2", start: 8, end: 16, text: "Information had been lodged at the police office, and they had been deputed to search the premises." },
@@ -227,9 +280,9 @@ export const CHAPTERS: Chapter[] = [
     ],
     cameraKeyframes: [
       { id: "6-k1", time: 0, position: { x: -2, y: 1.6, z: 3.5 }, lookAt: { x: -3, y: 1.5, z: 4 }, fov: 42, easing: "easeInOut" },
-      { id: "6-k2", time: 24, position: { x: 0, y: 1.6, z: 1.5 }, lookAt: { x: 0.5, y: 1.5, z: 0 }, fov: 38, easing: "easeInOut" },
-      { id: "6-k3", time: 42, position: { x: 0.5, y: 1.5, z: 0.8 }, lookAt: { x: 0, y: 0.4, z: -0.5 }, fov: 34, easing: "easeInOut" },
-      { id: "6-k4", time: 60, position: { x: 0, y: 1.4, z: 0.3 }, lookAt: { x: 0, y: 0.3, z: -0.2 }, fov: 30, easing: "linear" },
+      { id: "6-k2", time: 24, position: { x: -0.3, y: 1.55, z: 1.6 }, lookAt: { x: 0.4, y: 1.5, z: 0.2 }, fov: 38, easing: "easeInOut" },
+      { id: "6-k3", time: 42, position: { x: 0.4, y: 1.5, z: 0.7 }, lookAt: { x: 0, y: 0.5, z: -0.4 }, fov: 34, easing: "easeInOut" },
+      { id: "6-k4", time: 60, position: { x: 0, y: 1.45, z: 0.4 }, lookAt: { x: 0, y: 1.3, z: -0.2 }, fov: 32, easing: "linear" },
     ],
   },
   {
@@ -241,6 +294,8 @@ export const CHAPTERS: Chapter[] = [
     baselineHeartRate: 120,
     peakHeartRate: 140,
     audioTrack: "sfx_heartbeat_climax",
+    motionProfile: "locked-breathing",
+    lighting: { beamAngle: 0.4, colorTemp: "warm", intensity: 0.9, violence: 0.3 },
     subtitles: [
       { id: "7-1", start: 0, end: 8, text: "The officers were satisfied. My manner had convinced them. I was singularly at ease." },
       { id: "7-2", start: 8, end: 16, text: "They sat, and while I answered cheerily, they chatted of familiar things. But, ere long, I felt myself getting pale." },
@@ -253,11 +308,8 @@ export const CHAPTERS: Chapter[] = [
       { id: "7-9", start: 63, end: 70, text: "Was it possible they heard not? Almighty God! — no, no! They heard! — they suspected! — they knew!" },
     ],
     cameraKeyframes: [
-      { id: "7-k1", time: 0, position: { x: 0, y: 1.4, z: 0.3 }, lookAt: { x: 0, y: 0.3, z: -0.2 }, fov: 30, easing: "linear" },
-      { id: "7-k2", time: 24, position: { x: 0.3, y: 1.5, z: 0.5 }, lookAt: { x: -0.2, y: 1.4, z: 0.3 }, fov: 34, easing: "linear" },
-      { id: "7-k3", time: 40, position: { x: -0.4, y: 1.5, z: 0.4 }, lookAt: { x: 0.3, y: 1.4, z: 0.2 }, fov: 40, easing: "linear" },
-      { id: "7-k4", time: 56, position: { x: 0, y: 1.5, z: 0.2 }, lookAt: { x: 0, y: 1.4, z: -0.3 }, fov: 48, easing: "easeIn" },
-      { id: "7-k5", time: 70, position: { x: 0, y: 1.4, z: 0.1 }, lookAt: { x: 0, y: 0.2, z: -0.1 }, fov: 60, easing: "easeIn" },
+      { id: "7-k1", time: 0, position: { x: 0, y: 1.4, z: 0.5 }, lookAt: { x: 0, y: 1.35, z: -0.3 }, fov: 32, easing: "linear" },
+      { id: "7-k2", time: 70, position: { x: 0, y: 1.4, z: 0.5 }, lookAt: { x: 0, y: 1.35, z: -0.3 }, fov: 42, easing: "linear" },
     ],
   },
   {
@@ -269,6 +321,8 @@ export const CHAPTERS: Chapter[] = [
     baselineHeartRate: 140,
     peakHeartRate: 140,
     audioTrack: "sfx_heartbeat_breaking",
+    motionProfile: "frenetic-collapse",
+    lighting: { beamAngle: 0.55, colorTemp: "harsh", intensity: 1.4, violence: 1.0 },
     subtitles: [
       { id: "8-1", start: 0, end: 7, text: "I felt that I must scream or die! and now — again! — hark! louder! louder! louder! LOUDER!" },
       { id: "8-2", start: 7, end: 14, text: "\"Villains!\" I shrieked, \"dissemble no more! I admit the deed!" },
@@ -278,11 +332,12 @@ export const CHAPTERS: Chapter[] = [
       { id: "8-6", start: 38, end: 50, text: "And so the tale ends where it began: with a claim of sanity, undone by a single, unbearable heartbeat." },
     ],
     cameraKeyframes: [
-      { id: "8-k1", time: 0, position: { x: 0, y: 1.4, z: 0.1 }, lookAt: { x: 0, y: 0.2, z: -0.1 }, fov: 60, easing: "easeIn" },
-      { id: "8-k2", time: 14, position: { x: 0.2, y: 1.3, z: 0.3 }, lookAt: { x: 0, y: 0.3, z: -0.2 }, fov: 65, easing: "linear" },
-      { id: "8-k3", time: 21, position: { x: -0.5, y: 1.2, z: 0.6 }, lookAt: { x: 0, y: 0.1, z: -0.3 }, fov: 45, easing: "easeOut" },
-      { id: "8-k4", time: 38, position: { x: 0, y: 1.8, z: 2.5 }, lookAt: { x: 0, y: 0.2, z: 0 }, fov: 35, easing: "easeInOut" },
-      { id: "8-k5", time: 50, position: { x: 0, y: 2.5, z: 5 }, lookAt: { x: 0, y: 0.5, z: 0 }, fov: 50, easing: "easeInOut" },
+      { id: "8-k1", time: 0, position: { x: 0, y: 1.4, z: 0.5 }, lookAt: { x: 0, y: 1.35, z: -0.3 }, fov: 42, easing: "linear" },
+      { id: "8-k2", time: 7, position: { x: 0, y: 1.4, z: 0.5 }, lookAt: { x: 0, y: 1.35, z: -0.3 }, fov: 12, easing: "easeIn" },
+      { id: "8-k3", time: 14, position: { x: 0, y: 1.35, z: 0.4 }, lookAt: { x: 0, y: 0.3, z: -0.2 }, fov: 55, roll: 0.1, easing: "easeOut" },
+      { id: "8-k4", time: 21, position: { x: -0.4, y: 1.1, z: 0.6 }, lookAt: { x: 0, y: 0.1, z: -0.3 }, fov: 48, roll: -0.06, easing: "linear" },
+      { id: "8-k5", time: 30, position: { x: 0, y: 1.8, z: 2.2 }, lookAt: { x: 0, y: 0.2, z: 0 }, fov: 38, roll: 0, easing: "easeInOut" },
+      { id: "8-k6", time: 50, position: { x: 0, y: 2.3, z: 4.2 }, lookAt: { x: 0, y: 0.5, z: 0 }, fov: 42, roll: 0, easing: "easeInOut" },
     ],
   },
 ];
@@ -313,7 +368,7 @@ export function getActiveSubtitle(chapterId: number, timeSeconds: number): Subti
 export function getCameraPoseAtTime(
   chapterId: number,
   timeSeconds: number,
-): { position: Vec3; lookAt: Vec3; fov: number } | undefined {
+): { position: Vec3; lookAt: Vec3; fov: number; roll: number } | undefined {
   const chapter = getChapterById(chapterId);
   if (!chapter || chapter.cameraKeyframes.length === 0) return undefined;
 
@@ -321,11 +376,11 @@ export function getCameraPoseAtTime(
 
   if (timeSeconds <= keyframes[0].time) {
     const k = keyframes[0];
-    return { position: k.position, lookAt: k.lookAt, fov: k.fov ?? 45 };
+    return { position: k.position, lookAt: k.lookAt, fov: k.fov ?? 45, roll: k.roll ?? 0 };
   }
   const last = keyframes[keyframes.length - 1];
   if (timeSeconds >= last.time) {
-    return { position: last.position, lookAt: last.lookAt, fov: last.fov ?? 45 };
+    return { position: last.position, lookAt: last.lookAt, fov: last.fov ?? 45, roll: last.roll ?? 0 };
   }
 
   for (let i = 0; i < keyframes.length - 1; i++) {
@@ -343,6 +398,7 @@ export function getCameraPoseAtTime(
         position: lerpVec3(a.position, b.position),
         lookAt: lerpVec3(a.lookAt, b.lookAt),
         fov: lerp(a.fov ?? 45, b.fov ?? 45),
+        roll: lerp(a.roll ?? 0, b.roll ?? 0),
       };
     }
   }

@@ -23,9 +23,16 @@
  *  - HueSaturation + BrightnessContrast: baseline desaturation/contrast
  *    that grows with tension, PLUS a momentary desaturation flash — synced
  *    to the same heartbeat pulse — active only during Chapters 7 & 8.
- *  - DepthOfField + Noise (film grain): unchanged from PostFX.tsx, still
- *    gated by their Director Workbench toggles; DoF is additionally forced
- *    off by Performance Mode.
+ *  - DepthOfField + Noise (film grain): DoF's focus point now tracks the
+ *    LIVE camera-to-subject distance (cameraFocus.ts, written every frame
+ *    by CameraRig.tsx) via the underlying effect's `worldFocusDistance`
+ *    setter — real world units, confirmed against postprocessing's own
+ *    type declarations rather than guessed. Both still gated by their
+ *    Director Workbench toggles; DoF is additionally forced off by
+ *    Performance Mode.
+ *  - Chapter 8 climax flash: a brief brightness/color-push spike on entry —
+ *    see climaxFlash.ts for why this reuses existing effects rather than
+ *    adding an unverified new one.
  *
  * WEBXR: the entire EffectComposer is skipped while presenting. Screen-space
  * post-processing stacks like this one aren't generally built for stereo/
@@ -53,6 +60,8 @@ import { useStoryStore } from "../store/store";
 import { useRendererStore } from "../store/rendererStore";
 import { getAudioContext } from "../audio/audioContext";
 import { getHeartbeatPulse } from "../audio/heartbeatClock";
+import { cameraFocus } from "./cameraFocus";
+import { getClimaxFlashAmount } from "./climaxFlash";
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 const mapLinear = (value: number, inMin: number, inMax: number, outMin: number, outMax: number): number => {
@@ -82,6 +91,7 @@ export function TensionFX() {
   const vignetteRef: EffectInstanceRef = useRef(null);
   const hueSaturationRef: EffectInstanceRef = useRef(null);
   const brightnessContrastRef: EffectInstanceRef = useRef(null);
+  const depthOfFieldRef: EffectInstanceRef = useRef(null);
 
   useFrame(() => {
     if (isPresenting) return; // EffectComposer isn't even mounted below while presenting — nothing to update.
@@ -91,18 +101,27 @@ export function TensionFX() {
 
     const audioCtx = getAudioContext();
     const pulse = audioCtx ? getHeartbeatPulse(audioCtx.currentTime) : 0; // 0..1, spikes right on each beat
+    const climax = getClimaxFlashAmount(); // 0..1, decays after Ch8 entry
+
+    // ---- Depth of field: focus point tracks the LIVE camera-to-subject
+    // distance (see cameraFocus.ts), written every frame by CameraRig.tsx.
+    if (depthOfFieldRef.current) {
+      depthOfFieldRef.current.worldFocusDistance = cameraFocus.distance;
+    }
 
     // ---- Chromatic aberration: heart-rate baseline + a small per-beat kick.
     if (chromaticAberrationRef.current) {
       const baseOffset = mapLinear(heartRate, 60, 140, 0.0006, 0.0032);
-      const offset = baseOffset * (1 + pulse * 0.4);
+      const offset = baseOffset * (1 + pulse * 0.4) * (1 + climax * 1.5);
       chromaticAberrationRef.current.offset.set(offset, offset);
     }
 
-    // ---- Vignette: tension-scaled darkness, pulsing with the real heartbeat.
+    // ---- Vignette: tension-scaled darkness, pulsing with the real heartbeat,
+    // briefly RELAXED during Ch8's blinding flash (a flash washes OUT the
+    // frame — tightening the vignette further would fight that).
     if (vignetteRef.current) {
       const baseDarkness = mapLinear(tension, 0, 1, 0.85, 1.15);
-      vignetteRef.current.darkness = baseDarkness + pulse * 0.12;
+      vignetteRef.current.darkness = Math.max(0, baseDarkness + pulse * 0.12 - climax * 0.6);
     }
 
     // ---- Fear shift: heavy contrast + momentary desaturation, Ch.7/8 only.
@@ -110,11 +129,16 @@ export function TensionFX() {
 
     if (brightnessContrastRef.current) {
       brightnessContrastRef.current.contrast = mapLinear(tension, 0, 1, 0, 0.1) + fear * 0.18;
+      brightnessContrastRef.current.brightness = climax * 0.7; // the "blinding strobe" itself
     }
     if (hueSaturationRef.current) {
       const restingDesaturation = -tension * 0.15 - fear * 0.1;
       const beatFlash = fear * pulse * 0.55; // brief near-grayscale dip right on each thump
-      hueSaturationRef.current.saturation = clamp(restingDesaturation - beatFlash, -1, 0);
+      // Climax pushes hue toward red/sepia while ALSO pulling saturation back
+      // up out of the resting desaturation — an approximation of the
+      // brief's "blood-red/sepia glitch overlay", see climaxFlash.ts's caveat.
+      hueSaturationRef.current.hue = climax * 0.35;
+      hueSaturationRef.current.saturation = clamp(restingDesaturation - beatFlash + climax * 0.4, -1, 1);
     }
   });
 
@@ -124,7 +148,7 @@ export function TensionFX() {
     <EffectComposer multisampling={performanceMode ? 0 : 4}>
       <>
         {depthOfFieldEnabled && !performanceMode && (
-          <DepthOfField focusDistance={0.015} focalLength={0.045} bokehScale={3} height={480} />
+          <DepthOfField ref={depthOfFieldRef} focalLength={0.045} bokehScale={3} height={480} />
         )}
 
         {!performanceMode && (

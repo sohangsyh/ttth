@@ -54,6 +54,7 @@ import { TimelineDriver } from "./TimelineDriver";
 import { ChapterTransitionManager } from "./ChapterTransitionManager";
 import { CameraRig } from "./CameraRig";
 import { LanternLight } from "./LanternLight";
+import { WindowLight } from "./WindowLight";
 import { DustParticles } from "./DustParticles";
 import { BedroomScene } from "./BedroomScene";
 import { InteractiveScene } from "./InteractiveScene";
@@ -151,6 +152,7 @@ export function SceneCanvas({ onReady, onContextLost, onContextRestored }: Scene
           <MasterVolumeSync />
           <PlaythroughStatsTracker />
           <LanternLight />
+          <WindowLight />
           <DustParticles />
           <BedroomScene />
           <InteractiveScene />

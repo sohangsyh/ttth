@@ -16,6 +16,15 @@
  *    WASD(+Q/E, Shift-boost) fly movement via useKeyboardControls. This is the
  *    "Director Camera" mode for exploring the scene outside the authored path.
  *
+ * CINEMATOGRAPHY: each chapter's `motionProfile` (chapters.ts) supplies a
+ * continuous procedural offset — see cameraMotionProfiles.ts — layered on
+ * top of the keyframe-interpolated base pose (hover-drift, dutch-chaos,
+ * frenetic-collapse, etc). Keyframes may also author a `roll` value for
+ * true dutch-angle tilt, applied via camera.rotateZ AFTER lookAt() so it's
+ * a genuine roll around the view axis, not a re-aim. The live camera-to-
+ * subject distance is written to cameraFocus.ts every frame for TensionFX's
+ * DepthOfField to track.
+ *
  * WEBXR: while a VR session is active (useXR()'s `session` is set), this
  * component does NOTHING to the camera — neither branch runs, and
  * OrbitControls isn't rendered even in 'free' mode. WebXR's own head
@@ -38,10 +47,12 @@ import * as THREE from "three";
 import { useStoryStore } from "../store/store";
 import { useTimelineStore } from "../store/timelineStore";
 import { useRendererStore } from "../store/rendererStore";
-import { getCameraPoseAtTime } from "../data/chapters";
+import { getCameraPoseAtTime, getChapterById } from "../data/chapters";
 import { useKeyboardControls } from "./useKeyboardControls";
 import { cameraTransition } from "./cameraTransition";
 import { cameraJolt } from "./chapterEvents";
+import { getMotionOffset } from "./cameraMotionProfiles";
+import { cameraFocus } from "./cameraFocus";
 import { triggerFloorCreak } from "../audio/floorCreak";
 
 /** Higher = camera snaps to the cinematic target faster (less lag/smoothing). */
@@ -121,7 +132,28 @@ export function CameraRig() {
         }
       }
 
+      // ---- Per-chapter cinematographic "character" — see
+      // cameraMotionProfiles.ts. Applied to BOTH position and lookAt before
+      // the final lookAt() call, so the offset reads as a real camera move,
+      // not just a wobble layered on top of a static aim.
+      const chapterData = getChapterById(currentChapter);
+      const chapterDuration = chapterData?.duration ?? 60;
+      const motion = getMotionOffset(chapterData?.motionProfile ?? "steady-clinical", elapsed, chapterDuration);
+      camera.position.x += motion.position.x;
+      camera.position.y += motion.position.y;
+      camera.position.z += motion.position.z;
+      currentLookAt.current.x += motion.lookAt.x;
+      currentLookAt.current.y += motion.lookAt.y;
+      currentLookAt.current.z += motion.lookAt.z;
+
       camera.lookAt(currentLookAt.current);
+
+      // True dutch-angle tilt: rotate around the camera's own view axis
+      // AFTER aiming, combining the keyframe-authored `roll` with the
+      // motion profile's own procedural roll (Ch4/Ch8's chaos).
+      const totalRoll = livePose.roll + motion.roll;
+      if (Math.abs(totalRoll) > 0.0001) camera.rotateZ(totalRoll);
+
       if (camera instanceof THREE.PerspectiveCamera) camera.updateProjectionMatrix();
 
       // ---- Discrete chapter-enter jolt (see chapterEvents.ts) — a small
@@ -130,10 +162,14 @@ export function CameraRig() {
       const now = performance.now();
       if (now < cameraJolt.activeUntil) {
         const decay = (cameraJolt.activeUntil - now) / cameraJolt.durationMs;
-        const t = now * 0.001;
-        camera.position.x += (Math.sin(t * 47) + Math.sin(t * 71)) * cameraJolt.magnitude * decay;
-        camera.position.y += Math.sin(t * 59 + 1.3) * cameraJolt.magnitude * decay * 0.6;
+        const jt = now * 0.001;
+        camera.position.x += (Math.sin(jt * 47) + Math.sin(jt * 71)) * cameraJolt.magnitude * decay;
+        camera.position.y += Math.sin(jt * 59 + 1.3) * cameraJolt.magnitude * decay * 0.6;
       }
+
+      // Live camera-to-subject distance, for TensionFX's DepthOfField to
+      // rack focus onto whatever the camera is actually looking at.
+      cameraFocus.distance = camera.position.distanceTo(currentLookAt.current);
 
       return;
     }
